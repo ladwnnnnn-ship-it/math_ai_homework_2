@@ -3,98 +3,120 @@ import google.generativeai as genai
 from PIL import Image
 from datetime import datetime
 
-st.set_page_config(page_title="Yuri的数学AI", page_icon="🧚", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="高中数学AI智能分析系统", page_icon="📊", layout="wide")
 
-# ================ 超可爱粉色风格 ================
+# ==================== 沉稳专业深蓝风格 ====================
 st.markdown("""
 <style>
-    .big-title {font-size: 48px !important; font-weight: bold; background: linear-gradient(90deg, #FF69B4, #00BFFF); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
-    .stButton>button {background-color: #FF69B4 !important; color: white !important; font-size: 22px; height: 70px; border-radius: 20px;}
-    .history {background-color: #FFF0F5; padding: 10px; border-radius: 15px;}
+    .main {background-color: #0E1117;}
+    .big-title {font-size: 38px; font-weight: bold; color: #1E88E5;}
+    .stButton>button {background-color: #1E88E5; color: white; font-size: 18px; height: 55px;}
+    .card {background-color: #1E1E2E; padding: 15px; border-radius: 10px; border: 1px solid #334455;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="big-title">🧚‍♀️ Yuri的数学作业AI ✨</h1>', unsafe_allow_html=True)
-st.markdown("**📸 拍一张作业 → AI秒批改+超详细讲解+打分+可爱鼓励** ❤️ by Yuri in Gxu")
+st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
+st.caption("沉稳专业版 · by Yuri in Gxu · 每个同学独立使用")
 
-with st.sidebar:
-    st.image("https://img.icons8.com/emoji/100/000000/fairy.png")
-    st.success("✅ API已隐藏 · 同学直接用！")
-    st.caption("🧚 by Yuri in Gxu ❤️")
+# ==================== 用户系统（简单实现，无需额外包） ====================
+if 'users' not in st.session_state:
+    st.session_state.users = {"admin": {"password": "123456", "history": []}}  # 默认账号，实际可多人注册
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+
+# 登录/注册页面
+if st.session_state.current_user is None:
+    tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
     
-    # ==================== 历史记录（新增） ====================
-    if 'history' not in st.session_state:
-        st.session_state.history = []
+    with tab1:
+        username = st.text_input("用户名")
+        password = st.text_input("密码", type="password")
+        if st.button("登录"):
+            if username in st.session_state.users and st.session_state.users[username]["password"] == password:
+                st.session_state.current_user = username
+                st.success(f"欢迎回来，{username}！")
+                st.rerun()
+            else:
+                st.error("用户名或密码错误")
     
-    with st.expander("📜 查看历史批改记录（点击展开）", expanded=True):
-        if st.session_state.history:
-            for i, item in enumerate(st.session_state.history[::-1]):
-                st.markdown(f"**{item['time']}** 第{i+1}次")
-                st.write(item['preview'][:80] + "..." if len(item['preview']) > 80 else item['preview'])
-                if st.button(f"🔄 恢复第{i+1}次", key=f"load{i}"):
-                    st.success("已恢复！（下方会显示）")
-                    st.session_state.current_result = item['full']
-        else:
-            st.info("还没有记录哦～第一次分析后就会自动保存啦💕")
+    with tab2:
+        new_user = st.text_input("新用户名")
+        new_pass = st.text_input("新密码", type="password")
+        if st.button("注册账号"):
+            if new_user and new_user not in st.session_state.users:
+                st.session_state.users[new_user] = {"password": new_pass, "history": []}
+                st.success(f"注册成功！请用 {new_user} / {new_pass} 登录")
+            else:
+                st.error("用户名已存在或为空")
 
-# 主界面
-col1, col2 = st.columns([3, 1])
-with col1:
-    uploaded_file = st.file_uploader("📸 快拍作业照片上传吧～（手机拍照超方便）", type=["jpg", "jpeg", "png"])
+else:
+    # 已登录界面（沉稳主界面）
+    st.sidebar.success(f"👤 已登录：{st.session_state.current_user}")
+    if st.sidebar.button("退出登录"):
+        st.session_state.current_user = None
+        st.rerun()
 
-if uploaded_file:
-    colA, colB = st.columns([2, 1])
-    with colA:
-        st.image(uploaded_file, caption="🌟 你的作业小可爱已上传", use_column_width=True)
-    with colB:
-        st.markdown("### 🧚 AI小精灵准备好了！")
-        if st.button("🚀 让AI小精灵开始批改啦～ 💖", type="primary", use_container_width=True):
-            with st.spinner("🧚 小精灵正在飞来飞去认真批改中...（10-30秒）"):
-                try:
+    # 侧边栏
+    with st.sidebar:
+        st.markdown("### 📈 我的学习情况")
+        if st.button("🔍 一键AI总结知识漏洞"):
+            if st.session_state.users[st.session_state.current_user]["history"]:
+                all_text = "\n\n".join([h["result"] for h in st.session_state.users[st.session_state.current_user]["history"]])
+                with st.spinner("AI正在分析你的所有作业，找出薄弱点..."):
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                     model = genai.GenerativeModel('gemini-2.5-flash')
-                    response = model.generate_content([
-                        "你是超级温柔可爱的高中数学小精灵老师！用超级可爱的Markdown格式回复：🌟1.识别题目 2.正确答案 3.哪里错啦 4.超详细一步一步讲解（加表情）5.打分/100 6.暖心鼓励+小建议。最后加一堆❤️✨🌈",
-                        {"mime_type": "image/jpeg", "data": uploaded_file.getvalue()}
-                    ])
-                    result = response.text
+                    resp = model.generate_content(f"""
+你是高中数学老师。根据以下该学生所有作业分析记录，总结他当前最需要补的知识点漏洞。
+要求：
+1. 列出3-6个具体知识点名称（如：二次函数图像、导数应用、三角恒等变换等）
+2. 每个知识点说明为什么弱（举例）
+3. 给出针对性复习建议和优先级
+学生记录：{all_text[:8000]}
+                    """)
+                    gap_summary = resp.text
+                    st.session_state.gap_summary = gap_summary
+                st.success("知识漏洞分析完成")
+                st.markdown(gap_summary)
+            else:
+                st.info("先做几次作业分析吧～")
 
-                    # 保存历史（新增）
-                    preview = result[:100].replace("\n", " ")
-                    st.session_state.history.append({
-                        "time": datetime.now().strftime("%H:%M"),
-                        "preview": preview,
-                        "full": result
-                    })
-                    if len(st.session_state.history) > 10:  # 只保留最近10条
-                        st.session_state.history.pop(0)
+        st.caption("by Yuri in Gxu")
 
-                    st.balloons()
-                    st.success("🎉 小精灵批改完成啦！快夸夸你自己～")
-                    st.markdown(result)
-                    
-                    # ==================== 修复乱码下载 ====================
-                    st.download_button(
-                        label="📥 下载批改报告（发给老师/自己保存）",
-                        data=result.encode('utf-8'),
-                        file_name="Yuri_AI_数学作业分析.md",
-                        mime="text/markdown;charset=utf-8"
-                    )
+    # 主内容
+    st.markdown("### 📸 上传作业进行分析")
+    uploaded_file = st.file_uploader("选择作业照片（jpg/png）", type=["jpg", "jpeg", "png"])
 
-                except Exception as e:
-                    st.error(f"小精灵迷路了～ {str(e)}")
+    if uploaded_file:
+        st.image(uploaded_file, caption="已上传", use_column_width=True)
+        
+        if st.button("🚀 开始AI分析", type="primary"):
+            with st.spinner("分析中..."):
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                response = model.generate_content([
+                    "你是专业高中数学老师。用清晰专业Markdown格式：识别题目、正确答案、错误分析、详细步骤讲解、打分/100、改进建议。",
+                    {"mime_type": "image/jpeg", "data": uploaded_file.getvalue()}
+                ])
+                result = response.text
+                
+                # 保存到该用户历史
+                st.session_state.users[st.session_state.current_user]["history"].append({
+                    "time": datetime.now().strftime("%m-%d %H:%M"),
+                    "result": result
+                })
+                
+                st.success("分析完成")
+                st.markdown(result)
+                st.download_button("📥 下载本次分析", result.encode('utf-8'), "分析报告.md", mime="text/markdown")
 
-# 最底部可爱区
-st.divider()
-colX, colY, colZ = st.columns(3)
-with colX:
-    st.button("💌 分享给同学（复制链接）", use_container_width=True)
-    st.code("https://你的网址.streamlit.app", language=None)
-with colY:
-    if st.button("🌟 给Yuri打Call（点我）", use_container_width=True):
-        st.snow()
-        st.success("❤️ 谢谢你！Yuri开心～")
-with colZ:
-    st.markdown("**🧚 by Yuri in Gxu**  · 03/22/26")
+    # 显示历史
+    st.markdown("### 📜 我的历史分析")
+    history = st.session_state.users[st.session_state.current_user]["history"]
+    if history:
+        for item in history[-5:]:  # 显示最近5条
+            with st.expander(f"{item['time']} 的分析"):
+                st.markdown(item["result"][:300] + "...")
+    else:
+        st.info("还没有分析记录，上传一次作业后就会出现")
 
-st.caption("💡 小贴士：手机用户建议横屏 + 长按拍照上传更方便 | 历史记录自动保存，只在本次会话有效")
+    st.caption("💡 当前版本为演示，历史保存在本次会话。想永久保存可告诉我，我帮你加免费数据库。")
