@@ -33,6 +33,8 @@ if st.session_state.user is None:
         email = st.text_input("邮箱")
         password = st.text_input("密码", type="password")
         if st.button("登录"):
+            st.write("你输入的邮箱是：", email)           # 新增
+            st.write("你输入的密码长度是：", len(password))  # 新增，看是否为空或异常
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
