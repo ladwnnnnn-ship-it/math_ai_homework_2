@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
-import google.generativeai as genai
+from google import generativeai as genai  # 新方式
 from PIL import Image
 from datetime import datetime
 
@@ -76,23 +76,29 @@ else:
     if uploaded_file and st.button("开始分析"):
         with st.spinner("分析中..."):
             try:
-            # ... Gemini 分析代码 ...
-                result = response.text
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                response = model.generate_content([  # ← 这里定义了 response
+                    "你是专业高中数学老师。用清晰Markdown格式：识别题目、正确答案、错误分析、详细讲解、打分/100、建议。",
+                    {"mime_type": "image/jpeg", "data": uploaded_file.getvalue()}
+                ])
+                result = response.text  # ← 这里用 response.text
 
-            # 插入前打印调试（临时加，确认 user.id 是否存在）
-                st.write("当前用户 ID:", user.id)  # 加这行，看是否打印 uuid
+            # 插入前打印调试
+                st.write("当前用户 ID:", user.id)  # 确认有 uuid
 
                 supabase.table("analyses").insert({
-                    "user_id": user.id,                 # 必须这样写
+                    "user_id": user.id,
                     "result_text": result,
                     "timestamp": datetime.utcnow().isoformat()
                 }).execute()
 
                 st.success("分析完成，已保存")
                 st.markdown(result)
+                st.download_button("下载报告", result.encode('utf-8'), "报告.md", mime="text/markdown")
             except Exception as e:
-                st.error(f"插入失败: {str(e)}")
-                st.info(f"详细: {repr(e)}")  # 加这行
+                st.error(f"分析或插入失败: {str(e)}")
+                st.info(f"详细错误: {repr(e)}")
 
     # 历史
     records = supabase.table("analyses").select("*").eq("user_id", user.id).order("timestamp", desc=True).limit(5).execute().data
