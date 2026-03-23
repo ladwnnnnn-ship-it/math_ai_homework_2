@@ -88,12 +88,11 @@ else:
                 st.write("当前登录用户 auth.uid():", user.id)  # 应该打印 uuid 如 6600b96f-...
                 st.write("准备插入的 user_id 值:", user.id)     # 必须一样
 
-                supabase.table("analyses").insert({
-                    "user_id": str(user.id),  # 强制转字符串
-                    "result_text": result,
-                    "timestamp": datetime.utcnow().isoformat()
+                supabase.rpc("insert_analysis", {
+                    "p_user_id": user.id,
+                    "p_result_text": result,
+                    "p_timestamp": datetime.utcnow().isoformat()
                 }).execute()
-
                 st.success("分析完成，已保存")
                 st.markdown(result)
                 st.download_button("下载报告", result.encode('utf-8'), "报告.md", mime="text/markdown")
