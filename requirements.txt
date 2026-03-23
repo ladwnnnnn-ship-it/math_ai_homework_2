@@ -2,3 +2,4 @@ streamlit
 google-generativeai
 openai
 pillow
+st-supabase-connection
