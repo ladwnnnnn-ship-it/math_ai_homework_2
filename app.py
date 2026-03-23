@@ -87,6 +87,16 @@ else:
                 st.write("当前用户 ID:", user.id)  # 确认有 uuid
                 st.write("当前登录用户 auth.uid():", user.id)  # 应该打印 uuid 如 6600b96f-...
                 st.write("准备插入的 user_id 值:", user.id)     # 必须一样
+                st.write("当前 auth.uid():", user.id)
+                st.write("当前 auth.uid():", user.id)
+                st.write("表列 user_id 类型:", "请确认是 uuid")
+                insert_data = {
+                    "user_id": str(user.id),  # 试强制转 str
+                    "result_text": result,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                st.write("插入预览:", insert_data)
+
 
                 supabase.rpc("insert_analysis", {
                     "p_user_id": user.id,
