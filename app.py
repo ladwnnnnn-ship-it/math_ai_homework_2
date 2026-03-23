@@ -25,7 +25,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
-st.caption("by Yuri in Gxu")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
@@ -61,7 +60,7 @@ else:
         st.rerun()
 
     # 管理员面板
-    if user.email == "你的邮箱@qq.com":  # 改成你的真实邮箱
+    if user.email == "test@test.com":  # 改成你的真实邮箱
         st.header("管理员后台")
         try:
             # 需要 service_role key 才能查所有用户（secrets 加 SUPABASE_SERVICE_KEY）
@@ -77,25 +76,23 @@ else:
     if uploaded_file and st.button("开始分析"):
         with st.spinner("分析中..."):
             try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                model = genai.GenerativeModel('gemini-2.5-flash')
-                response = model.generate_content([
-                    "专业高中数学老师。用清晰Markdown：题目识别、正确答案、错误分析、讲解、打分/100、建议。",
-                    {"mime_type": "image/jpeg", "data": uploaded_file.getvalue()}
-                ])
+            # ... Gemini 分析代码 ...
                 result = response.text
 
+            # 插入前打印调试（临时加，确认 user.id 是否存在）
+                st.write("当前用户 ID:", user.id)  # 加这行，看是否打印 uuid
+
                 supabase.table("analyses").insert({
-                    "user_id": user.id,
+                    "user_id": user.id,                 # 必须这样写
                     "result_text": result,
                     "timestamp": datetime.utcnow().isoformat()
                 }).execute()
 
-                st.success("完成，已保存")
+                st.success("分析完成，已保存")
                 st.markdown(result)
-                st.download_button("下载", result.encode('utf-8'), "报告.md", mime="text/markdown")
             except Exception as e:
-                st.error(str(e))
+                st.error(f"插入失败: {str(e)}")
+                st.info(f"详细: {repr(e)}")  # 加这行
 
     # 历史
     records = supabase.table("analyses").select("*").eq("user_id", user.id).order("timestamp", desc=True).limit(5).execute().data
