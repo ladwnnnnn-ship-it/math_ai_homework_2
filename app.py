@@ -86,6 +86,8 @@ else:
 
             # 插入前打印调试
                 st.write("当前用户 ID:", user.id)  # 确认有 uuid
+                st.write("当前登录用户 auth.uid():", user.id)  # 应该打印 uuid 如 6600b96f-...
+                st.write("准备插入的 user_id 值:", user.id)     # 必须一样
 
                 supabase.table("analyses").insert({
                     "user_id": user.id,
