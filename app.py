@@ -6,7 +6,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="高中数学AI系统", layout="wide")
 
-# Supabase 客户端（从 secrets 读）
+# Supabase 客户端（普通 anon key）
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase: Client = create_client(supabase_url, supabase_key)
@@ -25,6 +25,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
+st.caption("by Yuri in Gxu")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
@@ -57,8 +58,8 @@ else:
         st.session_state.user = None
         st.rerun()
 
-    # 管理员面板（只你看到）
-    if user.email == "test@test.com":  # ← 改成你的真实管理员邮箱
+    # 管理员面板
+    if user.email == "test@test.com":  # 改成你的真实邮箱
         st.header("管理员后台")
         try:
             service_supabase = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
@@ -68,7 +69,7 @@ else:
         except:
             st.warning("查看用户列表需要 service_role key")
 
-    # 上传分析
+    # 上传分析（用 service_role key 插入，绕过 RLS）
     uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
     if uploaded_file and st.button("开始分析"):
         with st.spinner("分析中..."):
@@ -81,7 +82,9 @@ else:
                 ])
                 result = response.text
 
-                supabase.table("analyses").insert({
+                # 用 service_role key 插入（绕过 RLS）
+                service_supabase = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
+                service_supabase.table("analyses").insert({
                     "user_id": str(user.id),
                     "result_text": result,
                     "timestamp": datetime.utcnow().isoformat()
@@ -93,7 +96,7 @@ else:
             except Exception as e:
                 st.error(f"分析或插入失败: {str(e)}")
 
-    # 历史记录
+    # 历史记录（用普通 supabase 读，RLS 保护只读自己的）
     records = supabase.table("analyses").select("*").eq("user_id", user.id).order("timestamp", desc=True).limit(5).execute().data
     st.markdown("### 历史记录")
     for r in records:
