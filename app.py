@@ -2,7 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from openai import OpenAI
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="高中数学AI系统", layout="wide")
 
@@ -11,7 +11,6 @@ supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
 
-# 登录状态持久化优化
 if "user" not in st.session_state:
     st.session_state.user = None
 
@@ -24,13 +23,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
+st.caption("by Yuri in Gxu | 使用 n1n.ai")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
     with tab1:
         email = st.text_input("邮箱")
         password = st.text_input("密码", type="password")
-        remember = st.checkbox("记住我（同一浏览器内保持登录）", value=True)
         if st.button("登录"):
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -52,15 +51,12 @@ if st.session_state.user is None:
 else:
     user = st.session_state.user
     st.sidebar.success(f"已登录：{user.email}")
-
-    # 退出登录按钮（更友好）
     if st.sidebar.button("退出登录"):
         supabase.auth.sign_out()
         st.session_state.user = None
-        st.success("已退出登录")
         st.rerun()
 
-    # ==================== 上传分析 ====================
+    # 上传分析
     uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
     if uploaded_file and st.button("开始分析"):
         with st.spinner("AI分析中..."):
@@ -81,7 +77,7 @@ else:
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=30000,
+                    max_tokens=1500,
                     temperature=0.7
                 )
 
@@ -103,7 +99,7 @@ else:
 
     # ==================== 历史记录 ====================
     st.markdown("### 📜 我的历史批改记录")
-    records = supabase.table("analyses").select("*").eq("user_id", user.id).order("timestamp", desc=True).execute().data
+    records = supabase.table("analyses").select("*").eq("user_id", str(user.id)).order("timestamp", desc=True).execute().data
 
     if records:
         for r in records:
@@ -112,11 +108,24 @@ else:
     else:
         st.info("还没有批改记录，快上传第一张作业吧～")
 
-    # ==================== 总结薄弱点 ====================
+    # ==================== 总结薄弱点（带时间选择） ====================
     st.markdown("### 🔍 总结我的知识漏洞")
+    time_range = st.selectbox(
+        "选择总结范围",
+        ["全部记录", "最近7天", "最近30天", "最近90天"],
+        index=0
+    )
+
     if st.button("开始总结薄弱知识点"):
-        if records:
-            all_text = "\n\n".join([r["result_text"] for r in records])
+        if time_range == "全部记录":
+            filtered_records = records
+        else:
+            days = {"最近7天": 7, "最近30天": 30, "最近90天": 90}[time_range]
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            filtered_records = [r for r in records if datetime.fromisoformat(r["timestamp"].replace("Z", "")) > cutoff]
+
+        if filtered_records:
+            all_text = "\n\n".join([r["result_text"] for r in filtered_records])
             with st.spinner("AI正在分析你的所有记录..."):
                 client = OpenAI(api_key=st.secrets["THIRD_API_KEY"], base_url=st.secrets["THIRD_BASE_URL"])
                 resp = client.chat.completions.create(
@@ -125,6 +134,6 @@ else:
                 )
                 st.markdown(resp.choices[0].message.content)
         else:
-            st.warning("还没有任何记录，无法总结")
+            st.warning("该时间范围内没有记录")
 
 st.caption("数据永久保存 · by Yuri in Gxu | 使用 n1n.ai")
