@@ -80,8 +80,12 @@ else:
                     temperature=0.7
                 )
 
-                # 关键修复：正确获取返回内容
-                result = response.choices[0].message.content
+                # 针对 n1n.ai 的修复：兼容不同返回格式
+                if hasattr(response, 'choices') and response.choices:
+                    result = response.choices[0].message.content
+                else:
+                    # 如果是字符串直接返回，就直接用它
+                    result = str(response) if isinstance(response, str) else response
 
                 # 保存到数据库
                 service_supabase = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
@@ -97,6 +101,7 @@ else:
 
             except Exception as e:
                 st.error(f"调用失败: {str(e)}")
+                st.info("提示：请检查 n1n.ai 的模型名称是否正确")
 
     # 历史记录
     records = supabase.table("analyses").select("*").eq("user_id", user.id).order("timestamp", desc=True).limit(5).execute().data
@@ -116,8 +121,9 @@ else:
                     model=st.secrets["THIRD_MODEL"],
                     messages=[{"role": "user", "content": f"总结以下作业记录中最需要补的知识点（3-6个，名称+原因+建议）：{all_text[:12000]}"}]
                 )
-                st.markdown(resp.choices[0].message.content)
+                result_summary = resp.choices[0].message.content if hasattr(resp, 'choices') else str(resp)
+                st.markdown(result_summary)
         else:
             st.info("先分析几次作业吧")
 
-st.caption("数据永久保存 · by Yuri in Gxu ")
+st.caption("数据永久保存 · by Yuri in Gxu | 使用 n1n.ai")
