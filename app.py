@@ -76,7 +76,7 @@ else:
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=4000,
+                    max_tokens=30000,
                     temperature=0.7
                 )
 
