@@ -11,11 +11,9 @@ supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
 
-# 用户状态
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# 沉稳风格
 st.markdown("""
 <style>
     .main {background-color: #0E1117;}
@@ -58,7 +56,6 @@ else:
         st.session_state.user = None
         st.rerun()
 
-    # 上传分析（使用 n1n.ai）
     uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
     if uploaded_file and st.button("开始分析"):
         with st.spinner("AI分析中..."):
@@ -83,9 +80,10 @@ else:
                     temperature=0.7
                 )
 
+                # 关键修复：正确获取返回内容
                 result = response.choices[0].message.content
 
-                # 保存到数据库（使用 service_role key 绕过 RLS）
+                # 保存到数据库
                 service_supabase = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
                 service_supabase.table("analyses").insert({
                     "user_id": str(user.id),
@@ -122,5 +120,4 @@ else:
         else:
             st.info("先分析几次作业吧")
 
-st.caption("数据永久保存")
-st.caption("· by Yuri in Gxu")
+st.caption("数据永久保存 · by Yuri in Gxu ")
