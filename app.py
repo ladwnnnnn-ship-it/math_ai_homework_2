@@ -10,9 +10,6 @@ st.set_page_config(page_title="高中数学AI系统", layout="wide")
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
-
-# ★ 关键修复1：用 service_key 创建一个专门操作数据库的客户端（绕过 RLS）
-# Streamlit 是服务端运行，service_key 不会暴露给用户，安全可行
 db_client = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
 
 if "user" not in st.session_state:
@@ -64,31 +61,81 @@ else:
         st.session_state.user = None
         st.rerun()
 
-    # ==================== 上传分析 ====================
-    uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
+    # ==================== 上传作业 ====================
+    st.markdown("### 📤 上传作业")
 
-    # ★ 改进：上传后显示预览
-    if uploaded_file:
-        st.image(uploaded_file, caption="📷 图片预览", width=400)
+    homework_title = st.text_input(
+        "📝 本次作业名称（必填）",
+        placeholder="例如：第三章 函数与导数 课后练习"
+    )
 
-    if uploaded_file and st.button("开始分析"):
-        with st.spinner("AI分析中..."):
+    uploaded_files = st.file_uploader(
+        "上传作业照片（支持 1~9 张，一次上传算一次批改）",
+        type=["jpg", "png"],
+        accept_multiple_files=True
+    )
+
+    # ---- 图片预览 ----
+    if uploaded_files:
+        if len(uploaded_files) > 9:
+            st.error("⚠️ 最多上传 9 张图片，请减少数量")
+        else:
+            st.success(f"已选择 {len(uploaded_files)} 张图片")
+            preview_cols = st.columns(min(len(uploaded_files), 3))
+            for i, f in enumerate(uploaded_files):
+                with preview_cols[i % 3]:
+                    st.image(f, caption=f"第 {i+1} 张", use_container_width=True)
+
+    # ---- 提交前校验 ----
+    if uploaded_files and not homework_title.strip():
+        st.warning("⚠️ 请先输入作业名称")
+
+    can_submit = (
+        uploaded_files
+        and 0 < len(uploaded_files) <= 9
+        and homework_title.strip()
+    )
+
+    if can_submit and st.button("🚀 开始分析"):
+        with st.spinner(f"AI 正在分析 {len(uploaded_files)} 张图片，请耐心等待..."):
             try:
                 client = OpenAI(
                     api_key=st.secrets["THIRD_API_KEY"],
                     base_url=st.secrets["THIRD_BASE_URL"]
                 )
 
-                base64_image = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+                # ★ 构建多图消息
+                content = [{
+                    "type": "text",
+                    "text": (
+                        f"请帮我批改这份数学作业「{homework_title}」，"
+                        f"共 {len(uploaded_files)} 张图片。"
+                        f"请按图片顺序依次批改每张图中的所有题目。"
+                    )
+                }]
+                for f in uploaded_files:
+                    b64 = base64.b64encode(f.getvalue()).decode("utf-8")
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+                    })
 
                 response = client.chat.completions.create(
                     model=st.secrets["THIRD_MODEL"],
                     messages=[
-                        {"role": "system", "content": "你是专业高中数学老师。请用清晰的Markdown格式批改作业：识别每道题、给出正确答案、指出错误、一步步详细讲解、打分（满分100）、给出改进建议。"},
-                        {"role": "user", "content": [
-                            {"type": "text", "text": "请帮我批改这份数学作业"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]}
+                        {
+                            "role": "system",
+                            "content": (
+                                "你是专业高中数学老师。请用清晰的 Markdown 格式批改作业：\n"
+                                "1. 按图片顺序逐张批改\n"
+                                "2. 识别每道题并编号\n"
+                                "3. 给出正确答案\n"
+                                "4. 指出错误并一步步详细讲解\n"
+                                "5. 每张图片单独打分（满分100）\n"
+                                "6. 最后给出总分和整体改进建议"
+                            )
+                        },
+                        {"role": "user", "content": content}
                     ],
                     max_tokens=30000,
                     temperature=0.7
@@ -96,89 +143,145 @@ else:
 
                 result = response.choices[0].message.content
 
-                # ★ 关键修复2：用 db_client 写入
+                # ★ 保存到数据库（含 title 和 image_count）
                 db_client.table("analyses").insert({
                     "user_id": str(user.id),
+                    "title": homework_title.strip(),
+                    "image_count": len(uploaded_files),
                     "result_text": result,
                     "timestamp": datetime.utcnow().isoformat()
                 }).execute()
 
-                st.success("✅ 分析完成，已保存")
+                st.success("✅ 分析完成，已保存！")
                 st.markdown(result)
-                st.download_button("📥 下载报告", result.encode('utf-8'), "报告.md", mime="text/markdown")
+                st.download_button(
+                    "📥 下载报告",
+                    result.encode("utf-8"),
+                    f"{homework_title}.md",
+                    mime="text/markdown"
+                )
 
             except Exception as e:
-                st.error(f"调用失败: {str(e)}")
+                st.error(f"分析失败: {str(e)}")
 
-    # ==================== 历史记录 ====================
+    # ==================== 历史批改记录 ====================
     st.markdown("---")
     st.markdown("### 📜 我的历史批改记录")
 
-    # ★ 关键修复3：用 db_client 读取，并加 try/except
     try:
-        records = db_client.table("analyses") \
-            .select("*") \
-            .eq("user_id", str(user.id)) \
-            .order("timestamp", desc=True) \
-            .execute().data
+        records = (
+            db_client.table("analyses")
+            .select("*")
+            .eq("user_id", str(user.id))
+            .order("timestamp", desc=True)
+            .execute()
+            .data
+        )
     except Exception as e:
-        st.error(f"读取历史记录失败: {str(e)}")
+        st.error(f"读取历史失败: {str(e)}")
         records = []
 
-    # ★ 改进：显示记录数量
     st.caption(f"共 {len(records)} 条记录")
 
     if records:
         for i, r in enumerate(records):
-            # ★ 改进：更友好的时间显示 + 防止 key 冲突
-            ts = r.get('timestamp', '未知时间')[:16].replace("T", " ")
-            with st.expander(f"📅 {ts} 的批改记录", expanded=(i == 0)):
-                st.markdown(r.get("result_text", "内容为空"))
-    else:
-        st.info("还没有批改记录，快上传第一张作业吧～")
+            title = r.get("title") or "未命名作业"
+            ts = r.get("timestamp", "")[:16].replace("T", " ")
+            img_count = r.get("image_count") or 1
 
-    # ==================== 总结薄弱点 ====================
+            with st.expander(
+                f"📅 {ts}　|　📝 {title}　|　📷 {img_count} 张图片",
+                expanded=(i == 0)
+            ):
+                st.markdown(r.get("result_text", "内容为空"))
+                st.download_button(
+                    "📥 下载本次报告",
+                    r.get("result_text", "").encode("utf-8"),
+                    f"{title}.md",
+                    mime="text/markdown",
+                    key=f"dl_{r.get('id', i)}"
+                )
+    else:
+        st.info("还没有批改记录，快上传第一份作业吧～")
+
+    # ==================== 总结知识漏洞 ====================
     st.markdown("---")
     st.markdown("### 🔍 总结我的知识漏洞")
 
-    time_range = st.selectbox(
-        "选择总结范围",
-        ["全部记录", "最近7天", "最近30天", "最近90天"],
-        index=0
-    )
+    if not records:
+        st.info("暂无记录，上传作业后即可使用总结功能")
+    else:
+        # ★ 两种总结方式
+        summary_mode = st.radio(
+            "选择总结方式",
+            ["✅ 手动勾选记录", "📅 按时间范围"],
+            horizontal=True
+        )
 
-    if st.button("开始总结薄弱知识点"):
-        if not records:
-            st.warning("没有任何历史记录，请先上传作业")
+        filtered_records = []
+
+        if summary_mode == "✅ 手动勾选记录":
+            # ★ 构建选项列表（带序号防重名）
+            options_map = {}
+            option_labels = []
+            for idx, r in enumerate(records):
+                title = r.get("title") or "未命名作业"
+                ts = r.get("timestamp", "")[:16].replace("T", " ")
+                img_count = r.get("image_count") or 1
+                label = f"[{idx+1}] 📅 {ts} | {title}（{img_count}张）"
+                option_labels.append(label)
+                options_map[label] = r
+
+            selected_labels = st.multiselect(
+                "勾选要总结的批改记录（可多选）",
+                options=option_labels,
+                default=None,
+                placeholder="点击选择记录..."
+            )
+            filtered_records = [options_map[lb] for lb in selected_labels]
+
+            if selected_labels:
+                st.caption(f"已选择 {len(filtered_records)} 条记录")
+
         else:
-            # ★ 改进：时间过滤更健壮
+            time_range = st.selectbox(
+                "选择时间范围",
+                ["全部记录", "最近7天", "最近30天", "最近90天"],
+                index=0
+            )
             if time_range == "全部记录":
                 filtered_records = records
             else:
                 days = {"最近7天": 7, "最近30天": 30, "最近90天": 90}[time_range]
                 cutoff = datetime.utcnow() - timedelta(days=days)
-                filtered_records = []
                 for r in records:
                     try:
                         ts_str = r.get("timestamp", "")
-                        # 处理多种时间格式
                         ts_str = ts_str.replace("Z", "").replace("+00:00", "")
-                        record_time = datetime.fromisoformat(ts_str)
-                        if record_time > cutoff:
+                        if datetime.fromisoformat(ts_str) > cutoff:
                             filtered_records.append(r)
                     except Exception:
-                        filtered_records.append(r)  # 解析失败就包含进来
+                        filtered_records.append(r)
 
-            if filtered_records:
-                st.info(f"正在分析 {len(filtered_records)} 条记录...")
+            st.caption(f"该范围内共 {len(filtered_records)} 条记录")
 
-                # ★ 改进：按记录数截断而非字符数暴力截断
-                texts = [r.get("result_text", "") for r in filtered_records[:20]]  # 最多取20条
+        # ★ 开始总结按钮
+        if st.button("🧠 开始总结薄弱知识点"):
+            if not filtered_records:
+                st.warning("请至少选择一条记录！")
+            else:
+                # 拼接文本（带作业名称，方便 AI 理解上下文）
+                texts = []
+                for r in filtered_records[:20]:
+                    t = r.get("title") or "未命名"
+                    texts.append(f"## 作业：{t}\n{r.get('result_text', '')}")
                 all_text = "\n\n---\n\n".join(texts)
                 if len(all_text) > 15000:
-                    all_text = all_text[:15000] + "\n...(已截断)"
+                    all_text = all_text[:15000] + "\n\n...(内容过多，已截断)"
 
-                with st.spinner("AI正在分析你的所有记录..."):
+                st.info(f"正在分析 {len(filtered_records)} 条记录...")
+
+                with st.spinner("AI 正在总结你的薄弱知识点..."):
                     try:
                         client = OpenAI(
                             api_key=st.secrets["THIRD_API_KEY"],
@@ -187,16 +290,36 @@ else:
                         resp = client.chat.completions.create(
                             model=st.secrets["THIRD_MODEL"],
                             messages=[
-                                {"role": "system", "content": "你是一位经验丰富的高中数学教师，擅长分析学生的薄弱环节。"},
-                                {"role": "user", "content": f"以下是一位学生的多次数学作业批改记录，请总结出最需要补强的知识点（3-6个），每个包含：知识点名称、薄弱原因分析、具体改进建议和推荐练习方向。\n\n{all_text}"}
+                                {
+                                    "role": "system",
+                                    "content": "你是一位经验丰富的高中数学教师，擅长从学生的多次作业中分析薄弱环节并给出针对性建议。"
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "以下是一位学生的多次数学作业批改记录，"
+                                        "请总结出 3~6 个最需要补强的知识点，每个包含：\n"
+                                        "1. **知识点名称**\n"
+                                        "2. **薄弱原因分析**（结合具体错题说明）\n"
+                                        "3. **改进建议**\n"
+                                        "4. **推荐练习方向**\n\n"
+                                        f"{all_text}"
+                                    )
+                                }
                             ],
                             max_tokens=30000,
                             temperature=0.7
                         )
-                        st.markdown(resp.choices[0].message.content)
+                        summary_result = resp.choices[0].message.content
+                        st.markdown(summary_result)
+                        st.download_button(
+                            "📥 下载总结报告",
+                            summary_result.encode("utf-8"),
+                            "知识漏洞总结.md",
+                            mime="text/markdown",
+                            key="dl_summary"
+                        )
                     except Exception as e:
-                        st.error(f"AI分析失败: {str(e)}")
-            else:
-                st.warning("该时间范围内没有记录")
+                        st.error(f"总结失败: {str(e)}")
 
 st.caption("数据永久保存 · by Yuri in Gxu | 使用 n1n.ai")
