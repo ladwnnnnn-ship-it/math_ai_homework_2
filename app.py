@@ -14,6 +14,9 @@ supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
 
+# ==================== 管理员邮箱列表 ====================
+ADMIN_EMAILS = ["2155837094@qq.com", "3211038552@qq.com", "test@test.com"]
+
 # ==================== Cookie 管理器 ====================
 cookie = CookieController()
 
@@ -23,6 +26,9 @@ if "user" not in st.session_state:
 
 if "auth_checked" not in st.session_state:
     st.session_state.auth_checked = False
+
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []  # 聊天记录 [{"role": "user"/"assistant", "content": ...}]
 
 # ==================== 自动登录（从 Cookie 恢复会话） ====================
 if not st.session_state.auth_checked:
@@ -52,6 +58,8 @@ st.markdown("""
     .main {background-color: #0E1117;}
     .big-title {font-size: 38px; font-weight: bold; color: #1E88E5;}
     .stButton>button {background-color: #1E88E5; color: white; font-size: 18px; height: 55px;}
+    .chat-msg-user {background-color: #1E3A5F; border-radius: 12px; padding: 10px 14px; margin: 6px 0; text-align: right;}
+    .chat-msg-ai {background-color: #1E2A1E; border-radius: 12px; padding: 10px 14px; margin: 6px 0;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -97,15 +105,103 @@ if st.session_state.user is None:
 
 else:
     user = st.session_state.user
+    is_admin = user.email in ADMIN_EMAILS
+
     st.sidebar.success(f"已登录：{user.email}")
+    if is_admin:
+        st.sidebar.markdown("🔑 **管理员账号**")
     if st.sidebar.button("退出登录"):
         supabase.auth.sign_out()
         st.session_state.user = None
+        st.session_state.chat_messages = []
         try:
             cookie.remove("math_ai_session")
         except Exception:
             pass
         st.rerun()
+
+    # ==================== 管理员：AI 聊天 ====================
+    if is_admin:
+        st.markdown("---")
+        st.markdown("## 🤖 管理员 AI 对话")
+
+        # 清空聊天记录按钮
+        col1, col2 = st.columns([6, 1])
+        with col2:
+            if st.button("🗑️ 清空对话"):
+                st.session_state.chat_messages = []
+                st.rerun()
+
+        # 显示历史聊天记录
+        chat_container = st.container()
+        with chat_container:
+            for msg in st.session_state.chat_messages:
+                if msg["role"] == "user":
+                    with st.chat_message("user"):
+                        # 如果消息包含图片，显示图片
+                        if isinstance(msg["content"], list):
+                            for part in msg["content"]:
+                                if part["type"] == "text":
+                                    st.markdown(part["text"])
+                                elif part["type"] == "image_url":
+                                    # 从 base64 显示图片
+                                    img_data = part["image_url"]["url"].split(",")[1]
+                                    img_bytes = base64.b64decode(img_data)
+                                    st.image(img_bytes, width=300)
+                        else:
+                            st.markdown(msg["content"])
+                else:
+                    with st.chat_message("assistant"):
+                        st.markdown(msg["content"])
+
+        # 图片上传（可选）
+        chat_image = st.file_uploader("📎 上传图片（可选）", type=["jpg", "png", "jpeg"], key="chat_img")
+
+        # 输入框
+        user_input = st.chat_input("输入消息，按 Enter 发送...")
+
+        if user_input:
+            client = OpenAI(
+                api_key=st.secrets["THIRD_API_KEY"],
+                base_url=st.secrets["THIRD_BASE_URL"]
+            )
+
+            # 构建用户消息内容
+            if chat_image:
+                base64_img = base64.b64encode(chat_image.getvalue()).decode("utf-8")
+                user_content = [
+                    {"type": "text", "text": user_input},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
+                ]
+            else:
+                user_content = user_input
+
+            # 添加到聊天记录
+            st.session_state.chat_messages.append({"role": "user", "content": user_content})
+
+            # 构建发送给 API 的消息列表（带上下文）
+            api_messages = [
+                {"role": "system", "content": "你是一个全能AI助手，擅长高中数学、图片分析、解题讲解等。请用清晰的Markdown格式回答。"}
+            ]
+            for msg in st.session_state.chat_messages:
+                api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # 调用 AI
+            with st.spinner("AI思考中..."):
+                try:
+                    response = client.chat.completions.create(
+                        model=st.secrets["THIRD_MODEL"],
+                        messages=api_messages,
+                        max_tokens=30000,
+                        temperature=0.7
+                    )
+                    ai_reply = response.choices[0].message.content
+                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_reply})
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI 调用失败: {str(e)}")
+
+        st.markdown("---")
 
     # ==================== 上传分析 ====================
     uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
