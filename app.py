@@ -154,8 +154,11 @@ else:
                     with st.chat_message("assistant"):
                         st.markdown(msg["content"])
 
-        # 图片上传（可选）
-        chat_image = st.file_uploader("📎 上传图片（可选）", type=["jpg", "png", "jpeg"], key="chat_img")
+        # 图片上传（可选，最多9张）
+        chat_images = st.file_uploader("📎 上传图片（可选，最多9张）", type=["jpg", "png", "jpeg"], key="chat_img", accept_multiple_files=True)
+        if chat_images and len(chat_images) > 9:
+            st.warning("最多只能上传9张图片，已自动截取前9张")
+            chat_images = chat_images[:9]
 
         # 输入框
         user_input = st.chat_input("输入消息，按 Enter 发送...")
@@ -167,12 +170,11 @@ else:
             )
 
             # 构建用户消息内容
-            if chat_image:
-                base64_img = base64.b64encode(chat_image.getvalue()).decode("utf-8")
-                user_content = [
-                    {"type": "text", "text": user_input},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
-                ]
+            if chat_images:
+                user_content = [{"type": "text", "text": user_input}]
+                for img in chat_images:
+                    b64 = base64.b64encode(img.getvalue()).decode("utf-8")
+                    user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
             else:
                 user_content = user_input
 
@@ -204,8 +206,11 @@ else:
         st.markdown("---")
 
     # ==================== 上传分析 ====================
-    uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
-    if uploaded_file and st.button("开始分析"):
+    uploaded_files = st.file_uploader("上传作业照片（1-9张）", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    if uploaded_files and len(uploaded_files) > 9:
+        st.warning("最多只能上传9张图片，已自动截取前9张")
+        uploaded_files = uploaded_files[:9]
+    if uploaded_files and st.button("开始分析"):
         with st.spinner("AI分析中..."):
             try:
                 client = OpenAI(
@@ -213,16 +218,19 @@ else:
                     base_url=st.secrets["THIRD_BASE_URL"]
                 )
 
-                base64_image = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+                # 构建多图消息
+                image_parts = []
+                for f in uploaded_files:
+                    b64 = base64.b64encode(f.getvalue()).decode("utf-8")
+                    image_parts.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+                user_content = [{"type": "text", "text": f"请帮我批改这份数学作业（共{len(uploaded_files)}张图片）"}] + image_parts
 
                 response = client.chat.completions.create(
                     model=st.secrets["THIRD_MODEL"],
                     messages=[
                         {"role": "system", "content": "你是专业高中数学老师。请用清晰的Markdown格式批改作业：识别每道题、给出正确答案、指出错误、一步步详细讲解、打分（满分100）、给出改进建议。"},
-                        {"role": "user", "content": [
-                            {"type": "text", "text": "请帮我批改这份数学作业"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]}
+                        {"role": "user", "content": user_content}
                     ],
                     max_tokens=30000,
                     temperature=0.7
@@ -337,4 +345,4 @@ else:
     else:
         st.info("还没有批改记录，无法总结知识漏洞")
 
-st.caption("数据永久保存 · by Yuri_Lee | Powered by Gemini-3-pro")
+st.caption("数据永久保存 · by Yuri_Lee | Powered by Gemini-3.1-pro")
