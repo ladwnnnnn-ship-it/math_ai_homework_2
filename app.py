@@ -56,7 +56,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
-st.caption("by Yuri in Gxu | 使用 n1n.ai")
+st.caption("by Yuri_Lee | 使用 n1n.ai")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
@@ -128,7 +128,7 @@ else:
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=1500,
+                    max_tokens=30000,
                     temperature=0.7
                 )
 
@@ -140,7 +140,7 @@ else:
                     messages=[
                         {"role": "user", "content": f"根据以下作业批改内容，用不超过15个字概括本次作业的主要考察内容（例如：二次函数综合题、三角函数基础练习），只输出标题，不要其他内容：\n\n{result[:1000]}"}
                     ],
-                    max_tokens=30,
+                    max_tokens=30000,
                     temperature=0.3
                 )
                 auto_title = title_resp.choices[0].message.content.strip()
@@ -162,14 +162,22 @@ else:
 
     # ==================== 历史记录 ====================
     st.markdown("### 📜 我的历史批改记录")
-    records = supabase.table("analyses").select("*").eq("user_id", str(user.id)).order("timestamp", desc=True).execute().data
+
+    try:
+        service_supabase_read = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
+        records_resp = service_supabase_read.table("analyses").select("*").eq("user_id", str(user.id)).order("timestamp", desc=True).execute()
+        records = records_resp.data
+    except Exception as e:
+        st.error(f"读取历史记录失败: {str(e)}")
+        records = []
 
     if records:
+        st.caption(f"共 {len(records)} 条记录")
         for r in records:
             title = r.get("title") or "未命名作业"
-            ts = r["timestamp"][:16].replace("T", " ")
+            ts = r.get("timestamp", "")[:16].replace("T", " ")
             with st.expander(f"📅 {ts}　｜　📝 {title}"):
-                st.markdown(r["result_text"])
+                st.markdown(r.get("result_text", "（内容为空）"))
     else:
         st.info("还没有批改记录，快上传第一张作业吧～")
 
@@ -182,6 +190,8 @@ else:
             ["按时间范围选择", "手动勾选记录"],
             horizontal=True
         )
+
+        filtered_records = []
 
         if summary_mode == "按时间范围选择":
             time_range = st.selectbox(
@@ -196,20 +206,19 @@ else:
                 cutoff = datetime.utcnow() - timedelta(days=days)
                 filtered_records = [
                     r for r in records
-                    if datetime.fromisoformat(r["timestamp"].replace("Z", "")) > cutoff
+                    if datetime.fromisoformat(r["timestamp"].replace("Z", "").split(".")[0]) > cutoff
                 ]
             if filtered_records:
                 st.caption(f"已选中 {len(filtered_records)} 条记录")
             else:
                 st.warning("该时间范围内没有记录")
-                filtered_records = []
 
         else:  # 手动勾选
             st.caption("勾选你想纳入分析的记录：")
             selected_ids = []
             for r in records:
-                title = r.get("title") or "批改记录"
-                ts = r["timestamp"][:16].replace("T", " ")
+                title = r.get("title") or "未命名作业"
+                ts = r.get("timestamp", "")[:16].replace("T", " ")
                 if st.checkbox(f"📅 {ts}　｜　📝 {title}", key=f"chk_{r['id']}"):
                     selected_ids.append(r["id"])
             filtered_records = [r for r in records if r["id"] in selected_ids]
@@ -223,7 +232,8 @@ else:
                     client = OpenAI(api_key=st.secrets["THIRD_API_KEY"], base_url=st.secrets["THIRD_BASE_URL"])
                     resp = client.chat.completions.create(
                         model=st.secrets["THIRD_MODEL"],
-                        messages=[{"role": "user", "content": f"总结以下作业记录中最需要补的知识点（3-6个，名称+原因+建议）：{all_text[:15000]}"}]
+                        messages=[{"role": "user", "content": f"总结以下作业记录中最需要补的知识点（3-6个，名称+原因+建议）：{all_text[:15000]}"}],
+                        max_tokens=30000
                     )
                     st.markdown(resp.choices[0].message.content)
             else:
@@ -231,4 +241,4 @@ else:
     else:
         st.info("还没有批改记录，无法总结知识漏洞")
 
-st.caption("数据永久保存 · by Yuri in Gxu | 使用 n1n.ai")
+st.caption("数据永久保存 · by Yuri_Lee | 使用 n1n.ai")
