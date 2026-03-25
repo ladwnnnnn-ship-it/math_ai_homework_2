@@ -3,7 +3,7 @@ from supabase import create_client, Client
 from openai import OpenAI
 import base64
 from datetime import datetime, timedelta
-import extra_streamlit_components as stx
+from streamlit_cookies_controller import CookieController
 import json
 import time
 
@@ -15,11 +15,7 @@ supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
 
 # ==================== Cookie 管理器 ====================
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+cookie = CookieController()
 
 # ==================== 初始化 session_state ====================
 if "user" not in st.session_state:
@@ -32,7 +28,7 @@ if "auth_checked" not in st.session_state:
 if not st.session_state.auth_checked:
     st.session_state.auth_checked = True
     try:
-        saved_session = cookie_manager.get("math_ai_session")
+        saved_session = cookie.get("math_ai_session")
         if saved_session:
             session_data = json.loads(saved_session)
             expire_time = datetime.fromisoformat(session_data["expires_at"])
@@ -47,10 +43,10 @@ if not st.session_state.auth_checked:
                         st.session_state.user = res.user
                 except Exception:
                     # Token 失效，清除 Cookie
-                    cookie_manager.delete("math_ai_session")
+                    cookie.remove("math_ai_session")
             else:
                 # Cookie 已过期，清除
-                cookie_manager.delete("math_ai_session")
+                cookie.remove("math_ai_session")
     except Exception:
         pass
 
@@ -63,6 +59,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
+st.caption("by Yuri in Gxu | 使用 n1n.ai")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
@@ -80,10 +77,10 @@ if st.session_state.user is None:
                     "refresh_token": res.session.refresh_token,
                     "expires_at": (datetime.utcnow() + timedelta(minutes=20)).isoformat()
                 }
-                cookie_manager.set(
+                cookie.set(
                     "math_ai_session",
                     json.dumps(session_data),
-                    expires_at=datetime.now() + timedelta(minutes=20)
+                    max_age=1200  # 20分钟 = 1200秒
                 )
 
                 st.success("登录成功")
@@ -109,7 +106,7 @@ else:
         st.session_state.user = None
         # 清除 Cookie
         try:
-            cookie_manager.delete("math_ai_session")
+            cookie.remove("math_ai_session")
         except Exception:
             pass
         st.rerun()
