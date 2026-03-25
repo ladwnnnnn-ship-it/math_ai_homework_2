@@ -15,7 +15,7 @@ supabase_key = st.secrets["SUPABASE_ANON_KEY"]
 supabase = create_client(supabase_url, supabase_key)
 
 # ==================== 管理员邮箱列表 ====================
-ADMIN_EMAILS = ["2155837094@qq.com", "3211038552@qq.com", "test@test.com","1@1.com"，"yk49474947@gmail.com"]
+ADMIN_EMAILS = ["2155837094@qq.com", "3211038552@qq.com", "test@test.com","1@1.com","yk49474947@gmail.com"]
 
 # ==================== Cookie 管理器 ====================
 cookie = CookieController()
