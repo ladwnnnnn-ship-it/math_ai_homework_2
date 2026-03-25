@@ -337,4 +337,4 @@ else:
     else:
         st.info("还没有批改记录，无法总结知识漏洞")
 
-st.caption("数据永久保存 · by Yuri_Lee | 使用 n1n.ai")
+st.caption("数据永久保存 · by Yuri_Lee | Powered by Gemini-3-pro")
