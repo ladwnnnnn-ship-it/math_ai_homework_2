@@ -33,7 +33,6 @@ if not st.session_state.auth_checked:
             session_data = json.loads(saved_session)
             expire_time = datetime.fromisoformat(session_data["expires_at"])
             if datetime.utcnow() < expire_time:
-                # Cookie 未过期，尝试用 token 恢复会话
                 try:
                     res = supabase.auth.set_session(
                         session_data["access_token"],
@@ -42,10 +41,8 @@ if not st.session_state.auth_checked:
                     if res and res.user:
                         st.session_state.user = res.user
                 except Exception:
-                    # Token 失效，清除 Cookie
                     cookie.remove("math_ai_session")
             else:
-                # Cookie 已过期，清除
                 cookie.remove("math_ai_session")
     except Exception:
         pass
@@ -104,14 +101,13 @@ else:
     if st.sidebar.button("退出登录"):
         supabase.auth.sign_out()
         st.session_state.user = None
-        # 清除 Cookie
         try:
             cookie.remove("math_ai_session")
         except Exception:
             pass
         st.rerun()
 
-    # 上传分析
+    # ==================== 上传分析 ====================
     uploaded_file = st.file_uploader("上传作业照片", type=["jpg", "png"])
     if uploaded_file and st.button("开始分析"):
         with st.spinner("AI分析中..."):
@@ -138,16 +134,28 @@ else:
 
                 result = response.choices[0].message.content
 
+                # AI 自动生成标题（根据批改内容提取主题）
+                title_resp = client.chat.completions.create(
+                    model=st.secrets["THIRD_MODEL"],
+                    messages=[
+                        {"role": "user", "content": f"根据以下作业批改内容，用不超过15个字概括本次作业的主要考察内容（例如：二次函数综合题、三角函数基础练习），只输出标题，不要其他内容：\n\n{result[:1000]}"}
+                    ],
+                    max_tokens=30,
+                    temperature=0.3
+                )
+                auto_title = title_resp.choices[0].message.content.strip()
+
                 service_supabase = create_client(supabase_url, st.secrets["SUPABASE_SERVICE_KEY"])
                 service_supabase.table("analyses").insert({
                     "user_id": str(user.id),
+                    "title": auto_title,
                     "result_text": result,
                     "timestamp": datetime.utcnow().isoformat()
                 }).execute()
 
-                st.success("✅ 分析完成，已保存")
+                st.success(f"✅ 分析完成，已保存：《{auto_title}》")
                 st.markdown(result)
-                st.download_button("📥 下载报告", result.encode('utf-8'), "报告.md", mime="text/markdown")
+                st.download_button("📥 下载报告", result.encode('utf-8'), f"{auto_title}.md", mime="text/markdown")
 
             except Exception as e:
                 st.error(f"调用失败: {str(e)}")
@@ -158,37 +166,69 @@ else:
 
     if records:
         for r in records:
-            with st.expander(f"📅 {r['timestamp'][:16]} 的批改记录"):
+            title = r.get("title") or "未命名作业"
+            ts = r["timestamp"][:16].replace("T", " ")
+            with st.expander(f"📅 {ts}　｜　📝 {title}"):
                 st.markdown(r["result_text"])
     else:
         st.info("还没有批改记录，快上传第一张作业吧～")
 
-    # ==================== 总结薄弱点（带时间选择） ====================
+    # ==================== 总结薄弱点 ====================
     st.markdown("### 🔍 总结我的知识漏洞")
-    time_range = st.selectbox(
-        "选择总结范围",
-        ["全部记录", "最近7天", "最近30天", "最近90天"],
-        index=0
-    )
 
-    if st.button("开始总结薄弱知识点"):
-        if time_range == "全部记录":
-            filtered_records = records
-        else:
-            days = {"最近7天": 7, "最近30天": 30, "最近90天": 90}[time_range]
-            cutoff = datetime.utcnow() - timedelta(days=days)
-            filtered_records = [r for r in records if datetime.fromisoformat(r["timestamp"].replace("Z", "")) > cutoff]
+    if records:
+        summary_mode = st.radio(
+            "选择总结方式",
+            ["按时间范围选择", "手动勾选记录"],
+            horizontal=True
+        )
 
-        if filtered_records:
-            all_text = "\n\n".join([r["result_text"] for r in filtered_records])
-            with st.spinner("AI正在分析你的所有记录..."):
-                client = OpenAI(api_key=st.secrets["THIRD_API_KEY"], base_url=st.secrets["THIRD_BASE_URL"])
-                resp = client.chat.completions.create(
-                    model=st.secrets["THIRD_MODEL"],
-                    messages=[{"role": "user", "content": f"总结以下作业记录中最需要补的知识点（3-6个，名称+原因+建议）：{all_text[:15000]}"}]
-                )
-                st.markdown(resp.choices[0].message.content)
-        else:
-            st.warning("该时间范围内没有记录")
+        if summary_mode == "按时间范围选择":
+            time_range = st.selectbox(
+                "选择时间范围",
+                ["全部记录", "最近7天", "最近30天", "最近90天"],
+                index=0
+            )
+            if time_range == "全部记录":
+                filtered_records = records
+            else:
+                days = {"最近7天": 7, "最近30天": 30, "最近90天": 90}[time_range]
+                cutoff = datetime.utcnow() - timedelta(days=days)
+                filtered_records = [
+                    r for r in records
+                    if datetime.fromisoformat(r["timestamp"].replace("Z", "")) > cutoff
+                ]
+            if filtered_records:
+                st.caption(f"已选中 {len(filtered_records)} 条记录")
+            else:
+                st.warning("该时间范围内没有记录")
+                filtered_records = []
+
+        else:  # 手动勾选
+            st.caption("勾选你想纳入分析的记录：")
+            selected_ids = []
+            for r in records:
+                title = r.get("title") or "批改记录"
+                ts = r["timestamp"][:16].replace("T", " ")
+                if st.checkbox(f"📅 {ts}　｜　📝 {title}", key=f"chk_{r['id']}"):
+                    selected_ids.append(r["id"])
+            filtered_records = [r for r in records if r["id"] in selected_ids]
+            if filtered_records:
+                st.caption(f"已选中 {len(filtered_records)} 条记录")
+
+        if st.button("开始总结薄弱知识点"):
+            if filtered_records:
+                all_text = "\n\n".join([r["result_text"] for r in filtered_records])
+                with st.spinner("AI正在分析你的记录..."):
+                    client = OpenAI(api_key=st.secrets["THIRD_API_KEY"], base_url=st.secrets["THIRD_BASE_URL"])
+                    resp = client.chat.completions.create(
+                        model=st.secrets["THIRD_MODEL"],
+                        messages=[{"role": "user", "content": f"总结以下作业记录中最需要补的知识点（3-6个，名称+原因+建议）：{all_text[:15000]}"}]
+                    )
+                    st.markdown(resp.choices[0].message.content)
+            else:
+                st.warning("请先选择至少一条记录")
+    else:
+        st.info("还没有批改记录，无法总结知识漏洞")
 
 st.caption("数据永久保存 · by Yuri in Gxu | 使用 n1n.ai")
