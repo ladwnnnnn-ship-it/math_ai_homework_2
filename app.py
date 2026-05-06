@@ -64,7 +64,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="big-title">📊 高中数学AI智能分析系统</h1>', unsafe_allow_html=True)
-st.caption("by Yuri_Lee | 使用 n1n.ai")
+st.caption("by Yuri_Lee")
 
 if st.session_state.user is None:
     tab1, tab2 = st.tabs(["登录", "注册"])
